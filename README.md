@@ -11,8 +11,6 @@ Este repositório contém a implementação de um pipeline de processamento de d
 | Pablo Guilherme de Jesus Batista Silva | 200025791 |
 |     Pedro Lucas Siqueira Fernande      | 190115564 |
 
-
-
 ## Índice
 - [Laboratório Spark Streaming com Kafka e Twitter](#laboratório-spark-streaming-com-kafka-e-twitter)
   - [Participantes](#participantes)
@@ -24,6 +22,8 @@ Este repositório contém a implementação de um pipeline de processamento de d
     - [Coleta de Tweets com Kafka Producer](#coleta-de-tweets-com-kafka-producer)
     - [Processamento com Spark Streaming](#processamento-com-spark-streaming)
   - [Executando o Pipeline](#executando-o-pipeline)
+  - [Configurando o Conector Kafka Connect para Elasticsearch](#configurando-o-conector-kafka-connect-para-elasticsearch)
+    - [Passos para Configurar o Conector](#passos-para-configurar-o-conector)
   - [Migrando para Google Colab](#migrando-para-google-colab)
   - [Referências](#referências)
 
@@ -42,7 +42,6 @@ O objetivo deste laboratório é criar um sistema de processamento de dados em t
 ## Pré-requisitos
 
 Para executar este projeto, você precisará dos seguintes componentes instalados em sua máquina:
-
 - **Python 3.x**
 - **Apache Kafka** ([Download](https://kafka.apache.org/downloads))
 - **Apache Spark** ([Download](https://spark.apache.org/downloads.html))
@@ -91,30 +90,24 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
      from kafka import KafkaProducer
      import tweepy
      import json
-
      # Configuração da API do Twitter
      BEARER_TOKEN = "SEU_BEARER_TOKEN"
      client = tweepy.Client(bearer_token=BEARER_TOKEN)
-
      # Configurar Kafka Producer
      producer = KafkaProducer(
          bootstrap_servers="localhost:9092",
          value_serializer=lambda x: json.dumps(x).encode('utf-8')
      )
-
      # Definir palavra-chave para busca
      query = "tecnologia -is:retweet"
-
      def coletar_tweets():
          tweets = client.search_recent_tweets(query=query, tweet_fields=["created_at"], max_results=10)
          for tweet in tweets.data:
              mensagem = {"texto": tweet.text, "data": str(tweet.created_at)}
              producer.send("tweets_topic", value=mensagem)
              print(f"Enviando tweet: {tweet.text}")
-
      # Executar coleta de tweets
      coletar_tweets()
-
      # Fechar o Kafka Producer
      producer.flush()
      producer.close()
@@ -143,18 +136,15 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
      from pyspark.sql import SparkSession
      from pyspark.sql.functions import from_json, col, explode, split
      from pyspark.sql.types import StructType, StringType
-
      # Criar sessão Spark
      spark = SparkSession.builder \
          .appName("TwitterKafkaStreaming") \
          .config("spark.sql.streaming.checkpointLocation", "/tmp") \
          .getOrCreate()
-
      # Definir esquema dos tweets
      tweet_schema = StructType() \
          .add("texto", StringType()) \
          .add("data", StringType())
-
      # Ler dados do Kafka
      df = spark.readStream \
          .format("kafka") \
@@ -162,20 +152,16 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
          .option("subscribe", "tweets_topic") \
          .option("startingOffsets", "earliest") \
          .load()
-
      # Converter JSON para DataFrame
      tweets_df = df.selectExpr("CAST(value AS STRING)").select(from_json(col("value"), tweet_schema).alias("data")).select("data.*")
-
      # Contar palavras mais frequentes
      palavras_df = tweets_df.select(explode(split(col("texto"), " ")).alias("palavra"))
      contagem_palavras = palavras_df.groupBy("palavra").count().orderBy(col("count").desc())
-
      # Exibir no console
      query = contagem_palavras.writeStream \
          .outputMode("complete") \
          .format("console") \
          .start()
-
      query.awaitTermination()
      ```
 
@@ -211,6 +197,55 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
    ```bash
    python consumer_spark.py
    ```
+
+---
+
+## Configurando o Conector Kafka Connect para Elasticsearch
+
+Para integrar os dados processados pelo Spark Streaming ao **Elasticsearch** e visualizá-los no **Kibana**, é necessário configurar um **conector Kafka Connect**. Este conector enviará os dados do tópico Kafka para o Elasticsearch.
+
+### Passos para Configurar o Conector
+
+1. **Certifique-se de que o Elasticsearch e o Kibana estão instalados e rodando**:
+   - O Elasticsearch deve estar acessível em `http://localhost:9200`.
+   - O Kibana deve estar acessível em `http://localhost:5601`.
+
+2. **Inicie o Kafka Connect**:
+   - O Kafka Connect é uma ferramenta que permite a integração entre Kafka e outros sistemas, como o Elasticsearch.
+   - Certifique-se de que o Kafka Connect está rodando. Você pode iniciar o Kafka Connect em modo standalone ou distribuído. Para este exemplo, usaremos o modo distribuído.
+
+   ```bash
+   # Iniciar o Kafka Connect em modo distribuído
+   bin/connect-distributed.sh config/connect-distributed.properties
+   ```
+
+3. **Crie o Conector Elasticsearch**:
+   - Use o comando `curl` para criar um conector Kafka Connect que envie os dados do tópico Kafka para o Elasticsearch.
+
+   ```bash
+   curl -X POST -H "Content-Type: application/json" --data '{
+     "name": "elasticsearch-sink",
+     "config": {
+       "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+       "tasks.max": "1",
+       "topics": "tweets_topic",
+       "key.ignore": "true",
+       "connection.url": "http://localhost:9200",
+       "type.name": "kafka-connect"
+     }
+   }' http://localhost:8083/connectors
+   ```
+
+4. **Verifique o Status do Conector**:
+   - Após criar o conector, você pode verificar seu status usando o seguinte comando:
+
+   ```bash
+   curl http://localhost:8083/connectors/elasticsearch-sink/status
+   ```
+
+5. **Visualize os Dados no Kibana**:
+   - Abra o Kibana (`http://localhost:5601`) e crie um índice no Elasticsearch para os dados do tópico Kafka.
+   - Crie visualizações e dashboards no Kibana para exibir os dados processados.
 
 ---
 
