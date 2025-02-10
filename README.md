@@ -62,10 +62,8 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
    - Extraia o arquivo em um diretório de sua escolha.
    - Inicie o **Zookeeper** e o **Kafka Broker**:
      ```bash
-     # Iniciar o Zookeeper
      bin/zookeeper-server-start.sh config/zookeeper.properties
      
-     # Em outro terminal, iniciar o servidor Kafka
      bin/kafka-server-start.sh config/server.properties
      ```
 
@@ -90,10 +88,8 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
      from kafka import KafkaProducer
      import tweepy
      import json
-     # Configuração da API do Twitter
      BEARER_TOKEN = "SEU_BEARER_TOKEN"
      client = tweepy.Client(bearer_token=BEARER_TOKEN)
-     # Configurar Kafka Producer
      producer = KafkaProducer(
          bootstrap_servers="localhost:9092",
          value_serializer=lambda x: json.dumps(x).encode('utf-8')
@@ -106,9 +102,7 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
              mensagem = {"texto": tweet.text, "data": str(tweet.created_at)}
              producer.send("tweets_topic", value=mensagem)
              print(f"Enviando tweet: {tweet.text}")
-     # Executar coleta de tweets
      coletar_tweets()
-     # Fechar o Kafka Producer
      producer.flush()
      producer.close()
      ```
@@ -136,7 +130,6 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
      from pyspark.sql import SparkSession
      from pyspark.sql.functions import from_json, col, explode, split
      from pyspark.sql.types import StructType, StringType
-     # Criar sessão Spark
      spark = SparkSession.builder \
          .appName("TwitterKafkaStreaming") \
          .config("spark.sql.streaming.checkpointLocation", "/tmp") \
@@ -154,10 +147,8 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
          .load()
      # Converter JSON para DataFrame
      tweets_df = df.selectExpr("CAST(value AS STRING)").select(from_json(col("value"), tweet_schema).alias("data")).select("data.*")
-     # Contar palavras mais frequentes
      palavras_df = tweets_df.select(explode(split(col("texto"), " ")).alias("palavra"))
      contagem_palavras = palavras_df.groupBy("palavra").count().orderBy(col("count").desc())
-     # Exibir no console
      query = contagem_palavras.writeStream \
          .outputMode("complete") \
          .format("console") \
@@ -176,10 +167,9 @@ Para executar este projeto, você precisará dos seguintes componentes instalado
 
 1. **Iniciar o Kafka**:
    ```bash
-   # Iniciar o Zookeeper
+
    bin/zookeeper-server-start.sh config/zookeeper.properties
    
-   # Iniciar o Kafka Broker
    bin/kafka-server-start.sh config/server.properties
    ```
 
@@ -246,14 +236,6 @@ Para integrar os dados processados pelo Spark Streaming ao **Elasticsearch** e v
 5. **Visualize os Dados no Kibana**:
    - Abra o Kibana (`http://localhost:5601`) e crie um índice no Elasticsearch para os dados do tópico Kafka.
    - Crie visualizações e dashboards no Kibana para exibir os dados processados.
-
----
-
-## Migrando para Google Colab
-
-Se desejar migrar o projeto para o Google Colab, siga estas etapas:
-1. Altere a conexão com o Kafka para usar um serviço gerenciado, como **Confluent Cloud** ou **Redpanda**.
-2. Adapte o código para funcionar no ambiente do Colab, instalando as dependências necessárias via células de código.
 
 ---
 
